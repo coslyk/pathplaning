@@ -27,17 +27,6 @@ def nearestNeighboursX(pos, graph, radius):
          result.append(heapq.heappop(heap)) 
     
     return result
-    
-    
-def inSameConnectedComponent(node1, node2, graph):
-    """ Check whether to nodes are part of the same connected component using
-        functionality from NetworkX
-    """
-    for connectedComponent in nx.connected_components(graph):
-        if (node1 in connectedComponent) & (node2 in connectedComponent):
-            return True
-        
-    return False
 
 
 def getRandomFreePosition(collChecker):
@@ -48,29 +37,64 @@ def getRandomFreePosition(collChecker):
     return pos
 
 
-class BasicPRMPlanner:
+class VisibilityPRMPlanner:
     def __init__(self, scene, limits):
         self.graph = nx.Graph()
         self.collisionChecker = CollisionChecker(scene, limits)
 
-    def learn(self, radius, numNodes):
+    def learn(self, numTests):
+        ntry = 0
         i = 0
-        while i < numNodes:
+        guards = []
+        connections = []
+        while ntry < numTests:
         
             # Generate a randomly chosen, free configuration
             pos = getRandomFreePosition(self.collisionChecker)
-            
-            # Find set of candidates to connect to sorted by distance
-            result = nearestNeighboursX(pos, self.graph, radius)
-        
-            # check connection
-            self.graph.add_node(i, pos=pos)
-            for idx, data in enumerate(result):
-                if not inSameConnectedComponent(i, data[1][0], self.graph):
-                    if not self.collisionChecker.lineInCollision(pos,data[1][1]['pos']):
-                        self.graph.add_edge(i,data[1][0])
+            visibleNode = None
+            visibleGuard = None
+
+            # Check if pos is a connection node or a guard node
+            for guard in guards:
+                connectionFound = False
+                nodeDatas = self.graph.nodes(data=True) # Generate a list of nodes with all attributes
+                for guardNode in guard:
+                    # pos is visible to the guard?
+                    if not self.collisionChecker.lineInCollision(pos, nodeDatas[guardNode]['pos']):
+
+                        # First visible guard?
+                        if visibleNode is None:
+                            visibleNode = guardNode
+                            visibleGuard = guard
+                        
+                        # Second visible guard => pos is connection node
+                        else:
+                            connectionFound = True
+                            connections.append(i)
+
+                            # Connect two guards in graph
+                            self.graph.add_node(i, pos=pos)
+                            self.graph.add_edge(i, visibleNode)
+                            self.graph.add_edge(i, guardNode)
+
+                            # Merge two guards
+                            guard += visibleGuard
+                            guards.remove(visibleGuard)
+                            i += 1
+
+                        # Search next guard
+                        break
                     
-            i += 1
+                if connectionFound:
+                    break
+            
+            # No visible node => guard node
+            if visibleNode is None:
+                self.graph.add_node(i, pos=pos)
+                guards.append([i])
+                i += 1
+
+            ntry += 1
         
         
     def findPath(self, start, goal, radius):
